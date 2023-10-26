@@ -467,3 +467,63 @@ sdc                           8:32   0    2G  0 disk
 sdd                           8:48   0    1G  0 disk
 sde                           8:64   0    1G  0 disk
 ```
+
+## выделить том под /home;
+
+### Решение
+
+Создаём новый LV в VG VolGroup00 размером 2G, который будем использовать под /home. \
+Создаём файловую систему и монтируем в /mnt.
+```
+
+[root@lvm ~]# lvcreate -n lv_home -L 2G /dev/VolGroup00
+  Logical volume "lv_home" created.
+
+[root@lvm ~]# mkfs.xfs /dev/VolGroup00/lv_home
+meta-data=/dev/VolGroup00/lv_home isize=512    agcount=4, agsize=131072 blks
+         =                       sectsz=512   attr=2, projid32bit=1
+         =                       crc=1        finobt=0, sparse=0
+data     =                       bsize=4096   blocks=524288, imaxpct=25
+         =                       sunit=0      swidth=0 blks
+naming   =version 2              bsize=4096   ascii-ci=0 ftype=1
+log      =internal log           bsize=4096   blocks=2560, version=2
+         =                       sectsz=512   sunit=0 blks, lazy-count=1
+realtime =none                   extsz=4096   blocks=0, rtextents=0
+
+[root@lvm ~]# mount /dev/VolGroup00/lv_home /mnt
+```
+
+Далее скопируем все данные с текущего /home в /mnt.
+```
+
+[root@lvm ~]# cp -aR /home/* /mnt/
+```
+
+Удаляем все данные с текущего /home
+```
+
+[root@lvm ~]# rm -rf /home/*
+```
+
+Далее меняем точку монтирования нашего LV - lv_home.
+```
+
+[root@lvm ~]# umount /mnt/
+[root@lvm ~]# mount /dev/VolGroup00/lv_home /home/
+[root@lvm ~]# df -h
+Filesystem                       Size  Used Avail Use% Mounted on
+/dev/mapper/VolGroup00-LogVol00  8.0G  879M  7.2G  11% /
+devtmpfs                         110M     0  110M   0% /dev
+tmpfs                            118M     0  118M   0% /dev/shm
+tmpfs                            118M  4.5M  114M   4% /run
+tmpfs                            118M     0  118M   0% /sys/fs/cgroup
+/dev/sda2                       1014M   61M  954M   6% /boot
+tmpfs                             24M     0   24M   0% /run/user/1000
+/dev/mapper/VolGroup00-lv_home   2.0G   33M  2.0G   2% /home
+```
+
+Для автоматического монтирования /home правим файл /etc/fstab. Добавляем следующее содержимое:
+```
+
+/dev/mapper/VolGroup00-lv_home 		/home        xfs     defaults        0 0
+```
