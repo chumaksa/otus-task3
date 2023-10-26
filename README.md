@@ -280,6 +280,56 @@ Skipping udev rule: 91-permissions.rules
 
 Далее меняем конфигурационном файле grub (/boot/grub2/grub.cfg). \
 Меняем rd.lvm.lv=VolGroup00/LogVol00 на rd.lvm.lv=vg_temp_root/lv_temp_root \
+
+Далее в нашем задание нужно будет перенести /var. Сделаем эту оперцию сразу сейчас. \
+Для решения этого задания будем использовать свободные диски /sdc и /sdd. \
+Подготовим эти диски, создадим raid 1 на основе LVM и сделаем файловую систему ext4.
+```
+
+[root@lvm ~]# pvcreate /dev/sdc /dev/sdd
+  Physical volume "/dev/sdc" successfully created.
+  Physical volume "/dev/sdd" successfully created.
+  
+[root@lvm ~]# vgcreate vg_var /dev/sdc /dev/sdd
+  Volume group "vg_var" successfully created
+  
+[root@lvm ~]# lvcreate -n lv_var -L 950M -m1 vg_var
+  Rounding up size to full physical extent 952.00 MiB
+  Logical volume "lv_var" created.
+
+[root@lvm ~]# mkfs.ext4 /dev/vg_var/lv_var
+mke2fs 1.42.9 (28-Dec-2013)
+Filesystem label=
+OS type: Linux
+Block size=4096 (log=2)
+Fragment size=4096 (log=2)
+Stride=0 blocks, Stripe width=0 blocks
+60928 inodes, 243712 blocks
+12185 blocks (5.00%) reserved for the super user
+First data block=0
+Maximum filesystem blocks=249561088
+8 block groups
+32768 blocks per group, 32768 fragments per group
+7616 inodes per group
+Superblock backups stored on blocks:
+        32768, 98304, 163840, 229376
+
+Allocating group tables: done
+Writing inode tables: done
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: done
+```
+
+Монтируем новый lv, переносим данные из /var, очищаем /var, меняем точку монтирования и правим файл /ect/fstab.
+```
+
+[root@lvm ~]# mount /dev/vg_var/lv_var /mnt
+[root@lvm ~]# cp -aR /var/* /mnt/ # rsync -avHPSAX /var/ /mnt/
+[root@lvm ~]# rm -rf /var/*
+[root@lvm ~]# umount /mnt
+[root@lvm ~]# mount /dev/vg_var/lv_var /var
+```
+
 Возвращаемся в старое окружение и перезагружаемся.
 ```
 
@@ -468,7 +518,7 @@ sdd                           8:48   0    1G  0 disk
 sde                           8:64   0    1G  0 disk
 ```
 
-## выделить том под /home;
+## Выделить том под /home
 
 ### Решение
 
@@ -526,4 +576,81 @@ tmpfs                             24M     0   24M   0% /run/user/1000
 ```
 
 /dev/mapper/VolGroup00-lv_home 		/home        xfs     defaults        0 0
+```
+
+## Для /home - сделать том для снэпшотов
+
+### Решение
+
+Для выполнения задания выполним генерацию файлов в каталоге /home/
+```
+
+[root@lvm ~]# touch /home/file{1..20}
+
+[root@lvm ~]# ls -l /home/
+total 0
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file1
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file10
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file11
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file12
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file13
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file14
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file15
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file16
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file17
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file18
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file19
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file2
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file20
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file3
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file4
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file5
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file6
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file7
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file8
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file9
+drwx------. 3 vagrant vagrant 95 Oct 25 17:57 vagrant
+```
+
+Сделаем снапшот.
+```
+
+[root@lvm ~]# lvcreate -L 100MB -s -n home_snap /dev/VolGroup00/lv_home
+  Rounding up size to full physical extent 128.00 MiB
+  Logical volume "home_snap" created.
+  
+[root@lvm ~]# lvs
+  LV           VG           Attr       LSize   Pool Origin  Data%  Meta%  Move Log Cpy%Sync Convert
+  LogVol00     VolGroup00   -wi-ao----   8.00g
+  LogVol01     VolGroup00   -wi-ao----   1.50g
+  home_snap    VolGroup00   swi-a-s--- 128.00m      lv_home 0.03
+  lv_home      VolGroup00   owi-aos---   2.00g
+  lv_temp_root vg_temp_root -wi-a----- <10.00g
+  lv_var       vg_var       rwi-aor--- 952.00m                                     100.00
+```
+
+Удалим часть файлов.
+```
+
+[root@lvm ~]# rm -f /home/file{11..20}
+[root@lvm ~]# ls -l /home/
+total 0
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file1
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file10
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file2
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file3
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file4
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file5
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file6
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file7
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file8
+-rw-r--r--. 1 root    root     0 Oct 26 17:05 file9
+drwx------. 3 vagrant vagrant 95 Oct 25 17:57 vagrant
+```
+
+Сделаем восстановление файлов из снапшота.
+```
+[root@lvm ~]# umount /home
+[root@lvm ~]# lvconvert --merge /dev/VolGroup00/home_snap
+[root@lvm ~]# mount /home
 ```
